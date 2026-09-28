@@ -2,9 +2,16 @@
 
 This repo contains code for our paper: **PANNs: Large-Scale Pretrained Audio Neural Networks for Audio Pattern Recognition** [1]. A variety of CNNs are trained on the large-scale AudioSet dataset [2] containing 5000 hours audio with 527 sound classes. A mean average precision (mAP) of 0.439 is achieved using our proposed Wavegram-Logmel-CNN system, outperforming the Google baseline of 0.317 [3]. The PANNs have been used for audio tagging and sound event detection. The PANNs have been used to fine-tune several audio pattern recoginition tasks, and have outperformed several state-of-the-art systems. 
 
-## Environments
-The codebase is developed with Python 3.7. Install requirements as follows:
+## Quick Start (Web UI & API)
+Mọi người chỉ cần clone repo về và double-click chạy file:
+```cmd
+start_all.bat
 ```
+File này sẽ **tự động kiểm tra Python, tự động cài đặt toàn bộ thư viện thiếu, tự động setup node_modules** và mở đồng thời Backend API (FastAPI) cùng Web UI (React + Vite).
+
+## Environments
+Hỗ trợ Python 3.8+ đến Python 3.13 trên mọi hệ điều hành (Windows, Linux, macOS). Cài đặt các thư viện bằng:
+```bash
 pip install -r requirements.txt
 ```
 
