@@ -13,11 +13,84 @@ import {
   Cpu, 
   Layers, 
   Sparkles,
-  RefreshCw
+  RefreshCw,
+  Mic,
+  MicOff,
+  Square,
+  Radio
 } from 'lucide-react';
 import './App.css';
 
 const API_BASE = "http://127.0.0.1:8000";
+
+// Helper chuyển AudioBuffer thành chuẩn file WAV (16-bit PCM)
+function audioBufferToWav(buffer) {
+  const numOfChan = buffer.numberOfChannels;
+  const length = buffer.length * numOfChan * 2 + 44;
+  const out = new DataView(new ArrayBuffer(length));
+  let channels = [];
+  let sampleRate = buffer.sampleRate;
+  let offset = 0;
+  let pos = 0;
+
+  function writeString(str) {
+    for (let i = 0; i < str.length; i++) {
+      out.setUint8(pos++, str.charCodeAt(i));
+    }
+  }
+
+  function setUint16(data) {
+    out.setUint16(pos, data, true);
+    pos += 2;
+  }
+
+  function setUint32(data) {
+    out.setUint32(pos, data, true);
+    pos += 4;
+  }
+
+  // RIFF identifier
+  writeString('RIFF');
+  setUint32(length - 8);
+  // RIFF type
+  writeString('WAVE');
+  // format chunk identifier
+  writeString('fmt ');
+  // format chunk length
+  setUint32(16);
+  // sample format (raw PCM)
+  setUint16(1);
+  // channel count
+  setUint16(numOfChan);
+  // sample rate
+  setUint32(sampleRate);
+  // byte rate (sample rate * block align)
+  setUint32(sampleRate * 2 * numOfChan);
+  // block align (channel count * bytes per sample)
+  setUint16(numOfChan * 2);
+  // bits per sample
+  setUint16(16);
+  // data chunk identifier
+  writeString('data');
+  // data chunk length
+  setUint32(length - pos - 4);
+
+  for (let i = 0; i < buffer.numberOfChannels; i++) {
+    channels.push(buffer.getChannelData(i));
+  }
+
+  while (offset < buffer.length) {
+    for (let i = 0; i < numOfChan; i++) {
+      let sample = Math.max(-1, Math.min(1, channels[i][offset]));
+      sample = (0.5 + sample < 0 ? sample * 32768 : sample * 32767) | 0;
+      out.setInt16(pos, sample, true);
+      pos += 2;
+    }
+    offset++;
+  }
+
+  return new Blob([out], { type: 'audio/wav' });
+}
 
 function App() {
   const [file, setFile] = useState(null);
@@ -71,6 +144,103 @@ function App() {
     }
   };
 
+  const [inputMode, setInputMode] = useState('upload'); // 'upload' | 'mic'
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordDuration, setRecordDuration] = useState(0);
+  const [recordingBlob, setRecordingBlob] = useState(null);
+
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const timerRef = useRef(null);
+  const mediaStreamRef = useRef(null);
+
+  // Microphone recording handlers
+  const startRecording = async () => {
+    try {
+      setError(null);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+          ? 'audio/webm'
+          : 'audio/ogg';
+
+      const mediaRecorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        try {
+          const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+          setRecordingBlob(audioBlob);
+
+          // Chuyển đổi định dạng WebM sang chuẩn WAV (PCM 32000Hz) ngay trên trình duyệt
+          const arrayBuffer = await audioBlob.arrayBuffer();
+          const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 32000 });
+          const decodedBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+          const wavBlob = audioBufferToWav(decodedBuffer);
+          const recordedFile = new File([wavBlob], `mic_recording_${Date.now()}.wav`, {
+            type: "audio/wav"
+          });
+
+          handleFileChange(recordedFile);
+
+          // Stop all media tracks
+          if (mediaStreamRef.current) {
+            mediaStreamRef.current.getTracks().forEach(track => track.stop());
+            mediaStreamRef.current = null;
+          }
+
+          // Tự động phân tích ngay sau khi thu âm xong
+          handlePredict(recordedFile);
+        } catch (err) {
+          console.error("Audio conversion error:", err);
+          setError("Lỗi xử lý file thu âm: " + err.message);
+        }
+      };
+
+      mediaRecorder.start(200); // 200ms slice
+      setIsRecording(true);
+      setRecordDuration(0);
+
+      timerRef.current = setInterval(() => {
+        setRecordDuration(prev => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error(err);
+      setError("Không thể truy cập Microphone. Vui lòng cho phép quyền truy cập Micro trên trình duyệt.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
+
   const togglePlay = () => {
     if (!audioRef.current) return;
     if (isPlaying) {
@@ -82,13 +252,14 @@ function App() {
     }
   };
 
-  const handlePredict = async () => {
-    if (!file) return;
+  const handlePredict = async (fileToPredict = null) => {
+    const targetFile = fileToPredict || file;
+    if (!targetFile) return;
     setLoading(true);
     setError(null);
 
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("file", targetFile);
     formData.append("top_k", topK);
     formData.append("threshold", threshold);
 
@@ -117,7 +288,6 @@ function App() {
     try {
       setLoading(true);
       setError(null);
-      // Fetch test wav file
       const response = await fetch('/sample_audio.wav');
       if (!response.ok) {
         throw new Error("Không tìm thấy file mẫu demo");
@@ -169,32 +339,85 @@ function App() {
       <main className="main-grid">
         {/* Left Column: Upload & Controls */}
         <section className="glass-panel section-panel">
-          <div className="panel-header">
-            <h2 className="panel-title">
-              <UploadCloud size={18} color="var(--primary)" /> Tải File Âm Thanh
-            </h2>
+          {/* Tab Switcher: Upload vs Microphone */}
+          <div className="tab-switcher">
+            <button 
+              className={`tab-btn ${inputMode === 'upload' ? 'active' : ''}`}
+              onClick={() => {
+                if (isRecording) stopRecording();
+                setInputMode('upload');
+              }}
+            >
+              <UploadCloud size={16} /> Tải File Âm Thanh
+            </button>
+            <button 
+              className={`tab-btn ${inputMode === 'mic' ? 'active' : ''}`}
+              onClick={() => {
+                setInputMode('mic');
+              }}
+            >
+              <Mic size={16} /> Thu Âm Trực Tiếp (Mic)
+              {isRecording && <span className="rec-pulse-indicator" />}
+            </button>
           </div>
 
-          {/* Drag & Drop Area */}
-          <div 
-            className="dropzone"
-            onClick={() => fileInputRef.current?.click()}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={handleDrop}
-          >
-            <input 
-              type="file" 
-              ref={fileInputRef}
-              accept="audio/*,.wav,.mp3,.flac,.ogg,.m4a"
-              style={{ display: 'none' }}
-              onChange={(e) => e.target.files && handleFileChange(e.target.files[0])}
-            />
-            <Volume2 className="dropzone-icon" />
-            <div>
-              <div className="dropzone-text-main">Kéo & thả âm thanh hoặc click để chọn</div>
-              <div className="dropzone-text-sub">Hỗ trợ WAV, MP3, FLAC, OGG (Tối ưu: 32kHz)</div>
+          {/* Mode 1: Drag & Drop Area */}
+          {inputMode === 'upload' && (
+            <div 
+              className="dropzone"
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleDrop}
+            >
+              <input 
+                type="file" 
+                ref={fileInputRef}
+                accept="audio/*,.wav,.mp3,.flac,.ogg,.m4a"
+                style={{ display: 'none' }}
+                onChange={(e) => e.target.files && handleFileChange(e.target.files[0])}
+              />
+              <Volume2 className="dropzone-icon" />
+              <div>
+                <div className="dropzone-text-main">Kéo & thả âm thanh hoặc click để chọn</div>
+                <div className="dropzone-text-sub">Hỗ trợ WAV, MP3, FLAC, OGG (Tối ưu: 32kHz)</div>
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Mode 2: Microphone Live Recording Area */}
+          {inputMode === 'mic' && (
+            <div className={`mic-container ${isRecording ? 'recording-active' : ''}`}>
+              <div className="mic-animation-wrapper">
+                <div className={`mic-ripple ${isRecording ? 'rippling' : ''}`} />
+                <button 
+                  className={`mic-record-btn ${isRecording ? 'is-recording' : ''}`}
+                  onClick={isRecording ? stopRecording : startRecording}
+                  title={isRecording ? "Dừng ghi âm" : "Bắt đầu ghi âm qua Microphone"}
+                >
+                  {isRecording ? <Square size={28} /> : <Mic size={32} />}
+                </button>
+              </div>
+
+              <div className="mic-status-info">
+                {isRecording ? (
+                  <>
+                    <div className="rec-label">
+                      <span className="live-rec-dot" /> ĐANG THU ÂM TRỰC TIẾP...
+                    </div>
+                    <div className="rec-timer font-mono">
+                      00:{recordDuration < 10 ? `0${recordDuration}` : recordDuration}
+                    </div>
+                    <p className="mic-hint">Nói hoặc tạo âm thanh (tiếng động, vỗ tay, huýt sáo, gõ bàn...)</p>
+                  </>
+                ) : (
+                  <>
+                    <div className="mic-title">Bấm vào Mic để bắt đầu nói</div>
+                    <p className="mic-hint">Trình duyệt sẽ yêu cầu quyền Microphone. Nhấn lại nút vuông để kết thúc thu âm.</p>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Selected File Card & Audio Player */}
           {file && (

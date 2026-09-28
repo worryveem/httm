@@ -5,7 +5,7 @@ echo   PANNs Audio Recognition - Khoi Dong He Thong
 echo ========================================================
 echo.
 echo Dang khoi dong Backend API (FastAPI - Port 8000)...
-start "PANNs Backend API" cmd /k "cd /d %~dp0 && py -3.11 -m uvicorn api_server:app --host 127.0.0.1 --port 8000"
+start "PANNs Backend API" cmd /k "cd /d %~dp0 && py -3.10 -m uvicorn api_server:app --host 127.0.0.1 --port 8000"
 
 timeout /t 3 /nobreak > nul
 

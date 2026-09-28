@@ -102,11 +102,20 @@ async def predict_audio(
             temp_path = tmp.name
 
         sample_rate = config.sample_rate
-        # Load audio using librosa
+        # Load audio using soundfile / librosa with fallback
         try:
             waveform, sr = librosa.core.load(temp_path, sr=sample_rate, mono=True)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Failed to decode audio: {str(e)}")
+        except Exception:
+            try:
+                import soundfile as sf
+                data, in_sr = sf.read(temp_path)
+                if data.ndim > 1:
+                    data = np.mean(data, axis=1)
+                if in_sr != sample_rate:
+                    data = librosa.resample(data, orig_sr=in_sr, target_sr=sample_rate)
+                waveform = data
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Failed to decode audio: {str(e)}")
 
         duration = float(len(waveform)) / sample_rate
 
