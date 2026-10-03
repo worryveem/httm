@@ -160,7 +160,12 @@ async def predict_audio(
             "has_embedding": has_embedding,
             "embedding_shape": embedding_shape
         }
-
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Lỗi khi xử lý mô hình CNN14: {str(e)}")
     finally:
         if temp_path and os.path.exists(temp_path):
             try:

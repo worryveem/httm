@@ -253,15 +253,23 @@ function App() {
   };
 
   const handlePredict = async (fileToPredict = null) => {
-    const targetFile = fileToPredict || file;
-    if (!targetFile) return;
+    // Only accept fileToPredict if it's a valid Blob or File (prevents Click Event object from passing through)
+    const targetFile = (fileToPredict instanceof Blob || fileToPredict instanceof File)
+      ? fileToPredict
+      : file;
+
+    if (!targetFile) {
+      setError("Vui lòng tải lên hoặc chọn file âm thanh trước khi phân tích.");
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
     const formData = new FormData();
     formData.append("file", targetFile);
-    formData.append("top_k", topK);
-    formData.append("threshold", threshold);
+    formData.append("top_k", String(topK));
+    formData.append("threshold", String(threshold));
 
     try {
       const res = await fetch(`${API_BASE}/api/predict`, {
@@ -270,14 +278,27 @@ function App() {
       });
 
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({ detail: "Dự đoán thất bại" }));
-        throw new Error(errData.detail || "Không thể xử lý âm thanh");
+        let errorMsg = "Không thể xử lý âm thanh";
+        try {
+          const errData = await res.json();
+          if (typeof errData?.detail === 'string') {
+            errorMsg = errData.detail;
+          } else if (Array.isArray(errData?.detail)) {
+            errorMsg = errData.detail.map(d => d.msg || JSON.stringify(d)).join(", ");
+          } else if (errData?.detail) {
+            errorMsg = JSON.stringify(errData.detail);
+          }
+        } catch (_) {}
+        throw new Error(errorMsg);
       }
 
       const data = await res.json();
       setResults(data);
     } catch (err) {
-      setError(err.message);
+      const msg = typeof err === 'string'
+        ? err
+        : err?.message || "Đã xảy ra lỗi không xác định";
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -481,7 +502,7 @@ function App() {
           {/* Run Inference Button */}
           <button 
             className="btn-primary"
-            onClick={handlePredict}
+            onClick={() => handlePredict()}
             disabled={!file || loading || !systemStatus.online}
           >
             {loading ? (
