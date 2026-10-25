@@ -130,19 +130,19 @@ async def predict_audio(
         clipwise_output = output_dict['clipwise_output'].data.cpu().numpy()[0]
         sorted_indexes = np.argsort(clipwise_output)[::-1]
 
-        results = []
         labels = config.labels
-        for idx in sorted_indexes:
+        # Return top 100 predictions so frontend can filter dynamically in real-time
+        all_predictions = []
+        for idx in sorted_indexes[:100]:
             score = float(clipwise_output[idx])
-            if score < threshold and len(results) >= min(5, top_k):
-                break
-            results.append({
+            all_predictions.append({
                 "label": labels[idx],
                 "score": round(score, 4),
                 "percentage": round(score * 100, 2)
             })
-            if len(results) >= top_k:
-                break
+
+        # Strictly filter by threshold and top_k
+        results = [item for item in all_predictions if item["score"] >= threshold][:top_k]
 
         has_embedding = 'embedding' in output_dict
         embedding_shape = list(output_dict['embedding'].shape) if has_embedding else None
@@ -156,6 +156,7 @@ async def predict_audio(
             "duration_seconds": round(duration, 2),
             "sample_rate": sample_rate,
             "predictions": results,
+            "all_predictions": all_predictions,
             "waveform_preview": downsampled_wave,
             "has_embedding": has_embedding,
             "embedding_shape": embedding_shape

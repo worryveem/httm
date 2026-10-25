@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Activity, 
   UploadCloud, 
@@ -100,8 +100,19 @@ function App() {
   const [threshold, setThreshold] = useState(0.01);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState(null);
+  const [rawPredictions, setRawPredictions] = useState([]);
   const [error, setError] = useState(null);
   const [systemStatus, setSystemStatus] = useState({ online: false, checking: true });
+
+  // Tự động lọc thời gian thực khi người dùng kéo thanh trượt Top K hoặc Ngưỡng lọc
+  const displayedPredictions = useMemo(() => {
+    const source = (rawPredictions && rawPredictions.length > 0)
+      ? rawPredictions
+      : (results?.all_predictions || results?.predictions || []);
+    return source
+      .filter(item => item.score >= threshold)
+      .slice(0, topK);
+  }, [rawPredictions, results, threshold, topK]);
   
   const audioRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -132,6 +143,7 @@ function App() {
     setFile(selectedFile);
     setError(null);
     setResults(null);
+    setRawPredictions([]);
     const url = URL.createObjectURL(selectedFile);
     setAudioUrl(url);
     setIsPlaying(false);
@@ -294,6 +306,7 @@ function App() {
 
       const data = await res.json();
       setResults(data);
+      setRawPredictions(data.all_predictions || data.predictions || []);
     } catch (err) {
       const msg = typeof err === 'string'
         ? err
@@ -468,24 +481,32 @@ function App() {
           {/* Parameter Sliders */}
           <div className="controls-row">
             <div className="control-group">
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <label className="control-label">Top dự đoán</label>
-                <span className="font-mono" style={{ fontSize: '12px', color: 'var(--accent-cyan)' }}>{topK}</span>
+                <span className="font-mono" style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--accent-cyan)' }}>
+                  Top {topK}
+                </span>
               </div>
               <input 
                 type="range" 
-                min="3" 
-                max="25" 
+                min="1" 
+                max="30" 
+                step="1"
                 value={topK} 
                 className="input-slider"
                 onChange={(e) => setTopK(Number(e.target.value))}
               />
+              <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
+                Tối đa {topK} kết quả xác suất cao nhất
+              </span>
             </div>
 
             <div className="control-group">
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <label className="control-label">Ngưỡng lọc (Min)</label>
-                <span className="font-mono" style={{ fontSize: '12px', color: 'var(--accent-cyan)' }}>{threshold}</span>
+                <span className="font-mono" style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--accent-cyan)' }}>
+                  ≥ {(threshold * 100).toFixed(0)}% <span style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 'normal' }}>({threshold.toFixed(2)})</span>
+                </span>
               </div>
               <input 
                 type="range" 
@@ -496,6 +517,9 @@ function App() {
                 className="input-slider"
                 onChange={(e) => setThreshold(Number(e.target.value))}
               />
+              <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
+                Chỉ hiển thị âm thanh có độ tự tin ≥ {(threshold * 100).toFixed(0)}%
+              </span>
             </div>
           </div>
 
@@ -544,9 +568,14 @@ function App() {
               <BarChart3 size={18} color="var(--accent-cyan)" /> Kết Quả Phân Tích Tagging (AudioSet)
             </h2>
             {results && (
-              <span className="badge-rank" style={{ background: 'var(--accent-emerald)', color: 'white' }}>
-                Hoàn tất
-              </span>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>
+                  Hiển thị {displayedPredictions.length} nhãn (≥ {(threshold * 100).toFixed(0)}%)
+                </span>
+                <span className="badge-rank" style={{ background: 'var(--accent-emerald)', color: 'white' }}>
+                  Hoàn tất
+                </span>
+              </div>
             )}
           </div>
 
@@ -592,39 +621,64 @@ function App() {
 
               {/* List of Predictions */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
-                <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-muted)' }}>
-                  Các nhãn âm thanh nhận diện được:
-                </span>
-                {results.predictions.map((item, index) => {
-                  const isTop = index === 0;
-                  return (
-                    <div 
-                      key={index} 
-                      className={`prediction-item ${isTop ? 'top-rank' : ''}`}
-                    >
-                      <div className="item-row">
-                        <div className="label-title">
-                          <span className="badge-rank">#{index + 1}</span>
-                          <span>{item.label}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-muted)' }}>
+                    Các nhãn âm thanh nhận diện được:
+                  </span>
+                  <span style={{ fontSize: '12px', color: 'var(--accent-cyan)', fontFamily: 'monospace' }}>
+                    {displayedPredictions.length} / tối đa {topK}
+                  </span>
+                </div>
+
+                {displayedPredictions.length > 0 ? (
+                  displayedPredictions.map((item, index) => {
+                    const isTop = index === 0;
+                    return (
+                      <div 
+                        key={`${item.label}-${index}`} 
+                        className={`prediction-item ${isTop ? 'top-rank' : ''}`}
+                      >
+                        <div className="item-row">
+                          <div className="label-title">
+                            <span className="badge-rank">#{index + 1}</span>
+                            <span>{item.label}</span>
+                          </div>
+                          <div className="score-text font-mono">
+                            {item.percentage}% <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>({item.score})</span>
+                          </div>
                         </div>
-                        <div className="score-text font-mono">
-                          {item.percentage}% <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>({item.score})</span>
+                        <div className="progress-track">
+                          <div 
+                            className="progress-fill" 
+                            style={{ 
+                              width: `${Math.min(100, item.percentage)}%`,
+                              background: isTop 
+                                ? 'linear-gradient(90deg, #6366f1, #06b6d4)' 
+                                : 'rgba(99, 102, 241, 0.6)'
+                            }}
+                          />
                         </div>
                       </div>
-                      <div className="progress-track">
-                        <div 
-                          className="progress-fill" 
-                          style={{ 
-                            width: `${Math.min(100, item.percentage)}%`,
-                            background: isTop 
-                              ? 'linear-gradient(90deg, #6366f1, #06b6d4)' 
-                              : 'rgba(99, 102, 241, 0.6)'
-                          }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                ) : (
+                  <div style={{ 
+                    padding: '24px 16px', 
+                    textAlign: 'center', 
+                    background: 'rgba(255, 255, 255, 0.02)', 
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px dashed var(--border-subtle)',
+                    color: 'var(--text-dim)',
+                    fontSize: '13px'
+                  }}>
+                    <p style={{ margin: '0 0 6px 0', fontWeight: '500', color: 'var(--text-main)' }}>
+                      Không có nhãn nào đạt độ tin cậy ≥ {(threshold * 100).toFixed(0)}% ({threshold})
+                    </p>
+                    <p style={{ margin: 0 }}>
+                      Bạn hãy kéo giảm thanh <b>"Ngưỡng lọc (Min)"</b> bên trái (ví dụ về 0.01 hoặc 0.05) để xem thêm các âm thanh khác.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           ) : (
