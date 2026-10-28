@@ -569,3 +569,37 @@ audio {
   height: 48px;
   opacity: 0.4;
 }
+
+/* ==========================================================================
+   ALARM TOGGLE BUTTON STYLE
+   ========================================================================== */
+
+.btn-alarm-toggle {
+  width: 100%;
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-muted);
+  transition: all 0.2s ease;
+}
+
+.btn-alarm-toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-main);
+}
+
+.btn-alarm-toggle.active {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: #ef4444;
+  color: #fca5a5;
+  box-shadow: 0 0 15px rgba(239, 68, 68, 0.3);
+}
+

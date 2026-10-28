@@ -5,7 +5,8 @@ import numpy as np
 import torch
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+
 import librosa
 
 # Setup paths
@@ -78,6 +79,45 @@ def get_labels():
         "total": len(config.labels),
         "labels": config.labels
     }
+
+# List of dangerous labels actually present in AudioSet 527 classes
+DANGER_LABEL_PRESETS = [
+    "Siren",
+    "Alarm",
+    "Fire alarm",
+    "Smoke detector, smoke alarm",
+    "Civil defense siren",
+    "Police car (siren)",
+    "Ambulance (siren)",
+    "Fire engine, fire truck (siren)",
+    "Car alarm",
+    "Explosion",
+    "Gunshot, gunfire",
+    "Glass",
+    "Screaming",
+    "Fire",
+    "Emergency vehicle",
+    "Smash, crash"
+]
+
+@app.get("/api/alarm/presets")
+def get_alarm_presets():
+    available_labels = set(config.labels)
+    valid_presets = [lbl for lbl in DANGER_LABEL_PRESETS if lbl in available_labels]
+    return {
+        "presets": valid_presets,
+        "default_threshold": 0.80,
+        "default_consecutive": 3,
+        "default_cooldown_seconds": 10
+    }
+
+@app.get("/api/alarm/sound")
+def get_alarm_sound():
+    sound_path = os.path.join(base_dir, "resources", "alarm_siren.wav")
+    if os.path.exists(sound_path):
+        return FileResponse(sound_path, media_type="audio/wav", filename="alarm_siren.wav")
+    raise HTTPException(status_code=404, detail="Alarm sound file not found")
+
 
 @app.post("/api/predict")
 async def predict_audio(

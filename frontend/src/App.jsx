@@ -17,11 +17,34 @@ import {
   Mic,
   MicOff,
   Square,
-  Radio
+  Radio,
+  Bell,
+  BellOff
 } from 'lucide-react';
 import './App.css';
+import { playAlarm, stopAlarm } from './utils/audioAlarm';
 
 const API_BASE = "http://127.0.0.1:8000";
+
+// Danh sách các lớp âm thanh nguy hiểm có trong 527 lớp AudioSet của mô hình
+const DANGER_LABELS = new Set([
+  "Siren",
+  "Alarm",
+  "Fire alarm",
+  "Smoke detector, smoke alarm",
+  "Civil defense siren",
+  "Police car (siren)",
+  "Ambulance (siren)",
+  "Fire engine, fire truck (siren)",
+  "Car alarm",
+  "Explosion",
+  "Gunshot, gunfire",
+  "Glass",
+  "Screaming",
+  "Fire",
+  "Emergency vehicle",
+  "Smash, crash"
+]);
 
 // Helper chuyển AudioBuffer thành chuẩn file WAV (16-bit PCM)
 function audioBufferToWav(buffer) {
@@ -104,6 +127,16 @@ function App() {
   const [error, setError] = useState(null);
   const [systemStatus, setSystemStatus] = useState({ online: false, checking: true });
 
+  // Nút bật/tắt tính năng cảnh báo bằng âm thanh (mặc định tắt)
+  const [alarmEnabled, setAlarmEnabled] = useState(false);
+
+  // Dọn dẹp âm thanh khi unmount
+  useEffect(() => {
+    return () => {
+      stopAlarm();
+    };
+  }, []);
+
   // Tự động lọc thời gian thực khi người dùng kéo thanh trượt Top K hoặc Ngưỡng lọc
   const displayedPredictions = useMemo(() => {
     const source = (rawPredictions && rawPredictions.length > 0)
@@ -170,7 +203,18 @@ function App() {
   const startRecording = async () => {
     try {
       setError(null);
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Dừng còi nếu đang hú để tránh dội ngược âm thanh vào micro
+      if (isAlarmPlaying) {
+        handleStopAlarm();
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
       mediaStreamRef.current = stream;
 
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
@@ -306,7 +350,20 @@ function App() {
 
       const data = await res.json();
       setResults(data);
-      setRawPredictions(data.all_predictions || data.predictions || []);
+      const preds = data.all_predictions || data.predictions || [];
+      setRawPredictions(preds);
+
+      // Cảnh báo âm thanh: Nếu bật, phân tích ra âm thanh nguy hiểm thì phát còi, không nguy hiểm thì không phát còi
+      if (alarmEnabled) {
+        const isDanger = (data.predictions || []).some(item => DANGER_LABELS.has(item.label));
+        if (isDanger) {
+          playAlarm({ maxDuration: 4000 });
+        } else {
+          stopAlarm();
+        }
+      } else {
+        stopAlarm();
+      }
     } catch (err) {
       const msg = typeof err === 'string'
         ? err
@@ -522,6 +579,21 @@ function App() {
               </span>
             </div>
           </div>
+
+          {/* Single Alarm Toggle Button */}
+          <button 
+            type="button"
+            className={`btn-alarm-toggle ${alarmEnabled ? 'active' : ''}`}
+            onClick={() => {
+              const nextState = !alarmEnabled;
+              setAlarmEnabled(nextState);
+              if (!nextState) stopAlarm();
+            }}
+            title={alarmEnabled ? "Nhấn để tắt cảnh báo âm thanh" : "Nhấn để bật cảnh báo âm thanh"}
+          >
+            {alarmEnabled ? <Bell size={16} /> : <BellOff size={16} />}
+            <span>Cảnh Báo Âm Thanh: <strong>{alarmEnabled ? 'ĐANG BẬT' : 'ĐANG TẮT'}</strong></span>
+          </button>
 
           {/* Run Inference Button */}
           <button 
